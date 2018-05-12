@@ -194,19 +194,42 @@ class GenerateDocumentation extends Command
     }
 
     /**
+     * @param $route
+     *
      * @return array
+     * @throws \ReflectionException
      */
-    private function getBindings()
+    private function getBindings($route)
     {
-        $bindings = $this->option('bindings');
-        if (empty($bindings)) {
-            return [];
-        }
-        $bindings = explode('|', $bindings);
         $resultBindings = [];
-        foreach ($bindings as $binding) {
-            list($name, $id) = explode(',', $binding);
-            $resultBindings[$name] = $id;
+
+        list($class, $method) = explode('@', $route);
+        $reflection = new ReflectionClass($class);
+        $comment = $reflection->getMethod($method)->getDocComment();
+        if ($comment) {
+            $phpdoc = new DocBlock($comment);
+
+            $bindings = collect($phpdoc->getTags())
+                ->filter(function (DocBlock\Tag $tag) use ($route) {
+                    return $tag->getName() === 'binding';
+                });
+
+            if(!$bindings->isEmpty()) {
+                foreach($bindings as $binding) {
+                    /* @var DocBlock\Tag $binding */
+                    list($name, $id) = explode(',', $binding->getContent());
+                    $resultBindings[$name] = $id;
+                }
+            }
+        }
+
+        $bindings = $this->option('bindings');
+        if (!empty($bindings)) {
+            $bindings = explode('|', $bindings);
+            foreach ($bindings as $binding) {
+                list($name, $id) = explode(',', $binding);
+                $resultBindings[$name] = $id;
+            }
         }
 
         return $resultBindings;
@@ -253,11 +276,11 @@ class GenerateDocumentation extends Command
     {
         $withResponse = $this->option('noResponseCalls') === false;
         $routes = $this->getRoutes();
-        $bindings = $this->getBindings();
         $parsedRoutes = [];
         foreach ($routes as $route) {
             if (in_array($route->getName(), $allowedRoutes) || str_is($routePrefix, $route->getUri()) || in_array($middleware, $route->middleware())) {
                 if ($this->isValidRoute($route) && $this->isRouteVisibleForDocumentation($route->getAction()['uses'])) {
+                    $bindings = $this->getBindings($route->getAction()['uses']);
                     $parsedRoutes[] = $generator->processRoute($route, $bindings, $this->option('header'), $withResponse);
                     $this->info('Processed route: ['.implode(',', $route->getMethods()).'] '.$route->getUri());
                 } else {
@@ -280,11 +303,11 @@ class GenerateDocumentation extends Command
     {
         $withResponse = $this->option('noResponseCalls') === false;
         $routes = $this->getRoutes();
-        $bindings = $this->getBindings();
         $parsedRoutes = [];
         foreach ($routes as $route) {
             if (empty($allowedRoutes) || in_array($route->getName(), $allowedRoutes) || str_is($routePrefix, $route->uri()) || in_array($middleware, $route->middleware())) {
                 if ($this->isValidRoute($route) && $this->isRouteVisibleForDocumentation($route->getAction()['uses'])) {
+                    $bindings = $this->getBindings($route->getAction()['uses']);
                     $parsedRoutes[] = $generator->processRoute($route, $bindings, $this->option('header'), $withResponse);
                     $this->info('Processed route: ['.implode(',', $route->getMethods()).'] '.$route->uri());
                 } else {
